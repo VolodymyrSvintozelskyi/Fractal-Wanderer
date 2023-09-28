@@ -10,13 +10,13 @@ from multiprocessing import Pool
 
 logging.basicConfig(level=logging.INFO)
 
-ABSORBTION_PROB = 1
-FRACTAL_LEVELS = 4
-WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING = True
+ABSORBTION_PROB_S = np.linspace(0, 1, 11)
+FRACTAL_LEVELS_S = [1, 2, 3, 4, 5]
+WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING = False
 
-N_PARTICLES = 1000
-STEP = 1 / 3**FRACTAL_LEVELS / 3
-N_STEPS = 1000000
+N_PARTICLES = int(1e4)
+#STEP = 1 / 3**FRACTAL_LEVELS / 3
+N_STEPS = int(1e7)
 
 main_logger = logging.getLogger()
 file_handler = logging.FileHandler('output.log')
@@ -158,7 +158,7 @@ class WorkerResult:
         self.real_history_y = real_history_y
 
 
-def myworker(root_square):
+def myworker(root_square, STEP):
     square = root_square
     x, y = 0, 0
     hist_x, hist_y = [], []
@@ -184,84 +184,108 @@ def myworker(root_square):
 
 
 if __name__ == '__main__':
-    main_logger.info("Application launch")
-    main_logger.info(f"Number of cpu detected: {mp.cpu_count()}")
-    main_logger.info("Global variables: ")
-    main_logger.info(f"\tABSORBTION_PROB = {ABSORBTION_PROB}")
-    main_logger.info(f"\tFRACTAL_LEVELS = {FRACTAL_LEVELS}")
-    main_logger.info(f"\tWASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING = {WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING}")
-    main_logger.info(f"\tN_PARTICLES = {N_PARTICLES}")
-    main_logger.info(f"\tSTEP = {STEP}")
-    main_logger.info(f"\tN_STEPS = {N_STEPS}")
-    main_logger.info("Geometry init...")
+   
+   main_logger.info("Application launch")
+   main_logger.info(f"Number of cpu detected: {mp.cpu_count()}")
+    
+   for ABSORBTION_PROB in ABSORBTION_PROB_S:
+       for FRACTAL_LEVELS in FRACTAL_LEVELS_S:
+            
+            STEP = 1 / 3**FRACTAL_LEVELS / 3
+            if ABSORBTION_PROB < 0.01:
+                N_PARTICLES = int(1e3) * FRACTAL_LEVELS
+                N_STEPS = int(1e6)
+            else:
+                N_PARTICLES = int(1e4)
+                N_STEPS = int(1e7)
 
-    root_square, geom_obj_storage = Geometry.init_geom(-1, -1, 1, 1, absorb_prob=ABSORBTION_PROB)
+            #N_PARTICLES = int(1e3) * FRACTAL_LEVELS 
+            #N_STEPS = int(1e6) * FRACTAL_LEVELS
 
-    if WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING:
-        fig, ax = plt.subplots(1)
-        for obj in geom_obj_storage:
-            obj.draw(ax)
-            ax.text(.5*(obj.x1+obj.x2), .5*(obj.y1+obj.y2), f"{obj.zone}")
-        ax.set_title("Geometry with zones")
-        fig.savefig("geometry.png", dpi=300)
+            main_logger.info("\n\n\n" + "="*60 + "\n")
+            main_logger.info(f"\tABSORBTION_PROB = {ABSORBTION_PROB}")
+            main_logger.info(f"\tFRACTAL_LEVELS = {FRACTAL_LEVELS}")
+            main_logger.info(f"\tWASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING = {WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING}")
+            main_logger.info(f"\tN_PARTICLES = {N_PARTICLES}")
+            main_logger.info(f"\tSTEP = {STEP}")
+            main_logger.info(f"\tN_STEPS = {N_STEPS}")
+            main_logger.info("Geometry init...")
 
-    main_logger.info(f"Created {len(geom_obj_storage)} geometry objects")
-    main_logger.info(f"Sim start; timer init...")
+            root_square, geom_obj_storage = Geometry.init_geom(-1, -1, 1, 1, absorb_prob=ABSORBTION_PROB)
 
-    time_start = time.time()
-    results = []
-    with Pool(mp.cpu_count() - 2) as p:
-        results = p.map(myworker, [root_square]*(N_PARTICLES))
+            if WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING:
+                fig, ax = plt.subplots(1)
+                for obj in geom_obj_storage:
+                    obj.draw(ax)
+                    ax.text(.5*(obj.x1+obj.x2), .5*(obj.y1+obj.y2), f"{obj.zone}")
+                ax.set_title("Geometry with zones")
+                fig.savefig("geometry.png", dpi=300)
 
-    PLOT_PARTICLES = N_PARTICLES
+            main_logger.info(f"Created {len(geom_obj_storage)} geometry objects")
+            main_logger.info(f"Sim start; timer init...")
 
-    hist, _ = numpy.histogram(np.array([h.death_zone for h in results]), bins=range(0, FRACTAL_LEVELS+1))
-    zone_deaths = np.array([h.death_zone for h in results])
-    end_alive = np.array([not h.absorbed for h in results])
+            time_start = time.time()
+            results = []
+            with Pool(mp.cpu_count() - 2) as p:
+                results = p.starmap(myworker, [(root_square, STEP)]*(N_PARTICLES))
 
-    main_logger.info("\n\n\n" + "="*30)
-    main_logger.info(f"Histogram: {hist / N_PARTICLES}")
-    main_logger.info(f"Histogram without norm: {hist}")
-    main_logger.info(f"Alive percent: {[not h.absorbed for h in results].count(True) / N_PARTICLES}")
+            PLOT_PARTICLES = N_PARTICLES
 
-    if WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING:
-        fig, [ax, ax_zone_hist, ax_status_hist] = plt.subplots(1,3, figsize=(18,6))
+            hist_formal, _ = numpy.histogram(np.array([h.death_zone for h in results]), bins=range(0, FRACTAL_LEVELS+1))
+            hist, _ = numpy.histogram(np.array([h.death_zone for h in results if h.absorbed]), bins=range(0, FRACTAL_LEVELS+1))
+            zone_deaths = np.array([h.death_zone for h in results])
+            end_alive = np.array([not h.absorbed for h in results])
 
-        # for i in range(PLOT_PARTICLES):
-        #     data_x = results[i].target_history_x
-        #     data_y = results[i].target_history_y
-        #     ax.plot(data_x, data_y, 'b-', alpha=.9, label="Intended path" if i==0 else None)
-        #
-        # for i in range(PLOT_PARTICLES):
-        #     data_x = results[i].real_history_x
-        #     data_y = results[i].real_history_y
-        #     ax.plot(data_x, data_y, 'r-', alpha=.9, label="Real path" if i==0 else None)
+            main_logger.info("\n\n\n" + "="*30)
+            main_logger.info(f"General histogram: {hist_formal / N_PARTICLES}")
+            main_logger.info(f"General histogram without norm: {hist_formal}")
+            main_logger.info(f"Histogram (only absorptions): {hist / N_PARTICLES}")
+            main_logger.info(f"Histogram (only absorptions) without norm: {hist}")
+            main_logger.info(f"Alive percent: {[not h.absorbed for h in results].count(True) / N_PARTICLES}")
 
-        ax.scatter([h.real_history_x[-1] for h in results if not h.absorbed]    , [h.real_history_y[-1] for h in results if not h.absorbed]     , s=50, marker='o', zorder=1000, label="Killed by iteration limit")
-        ax.scatter([h.real_history_x[-1] for h in results if h.absorbed]        , [h.real_history_y[-1] for h in results if h.absorbed]         , s=50, marker='v', zorder=1001, c='green', label="Killed by absorption on walls")
-        ax.legend().remove()
+            main_logger.info("\n\n\n" + "="*60)
 
-        for obj in geom_obj_storage:
-            obj.draw(ax, color='black')
+            if WASTE_A_LOT_OF_TIME_BY_PLOTTING_EVERYTHING:
+                fig, [ax, ax_zone_hist, ax_status_hist] = plt.subplots(1,3, figsize=(18,6))
 
-        ax.legend()
-        ax.set_xlim(-2, 3)
-        ax.set_ylim(-2, 3)
-        ax.set_title(f"Particle tracks. Absorb. prob. = {ABSORBTION_PROB}")
-        
-        ax_zone_hist.set_yticks(np.arange(0, 1, 0.05))
-        ax_zone_hist.grid(color='black', linestyle='-', linewidth=1)
-        ax_zone_hist.hist(zone_deaths, weights=np.ones(N_PARTICLES) / N_PARTICLES)
-        ax_zone_hist.set_xlabel("Zone")
-        ax_zone_hist.set_ylabel("Deaths in zone")
-        ax_zone_hist.set_title("Place of particle death")
+                # for i in range(PLOT_PARTICLES):
+                #     data_x = results[i].target_history_x
+                #     data_y = results[i].target_history_y
+                #     ax.plot(data_x, data_y, 'b-', alpha=.9, label="Intended path" if i==0 else None)
+                #
+                # for i in range(PLOT_PARTICLES):
+                #     data_x = results[i].real_history_x
+                #     data_y = results[i].real_history_y
+                #     ax.plot(data_x, data_y, 'r-', alpha=.9, label="Real path" if i==0 else None)
 
-        ax_status_hist.bar(["Absorbed by walls", "Killed by iter. limit"], [sum(end_alive == False), sum(end_alive == True)])
-        ax_status_hist.set_title("Reason of particle death")
-        fig.savefig("tracks.png", dpi=300)
-        plt.show()
+                ax.scatter([h.real_history_x[-1] for h in results if not h.absorbed]    , [h.real_history_y[-1] for h in results if not h.absorbed]     , s=50, marker='o', zorder=1000, label="Killed by iteration limit")
+                ax.scatter([h.real_history_x[-1] for h in results if h.absorbed]        , [h.real_history_y[-1] for h in results if h.absorbed]         , s=50, marker='v', zorder=1001, c='green', label="Killed by absorption on walls")
+                ax.legend().remove()
 
-    time_finish = time.time()
-    main_logger.info(f'time of generation: {time.strftime("%H:%M:%S", time.gmtime(time_finish-time_start))}' )
-    main_logger.info("Application finish")
+                for obj in geom_obj_storage:
+                    obj.draw(ax, color='black')
+
+                ax.legend()
+                ax.set_xlim(-2, 3)
+                ax.set_ylim(-2, 3)
+                ax.set_title(f"Particle tracks. Absorb. prob. = {ABSORBTION_PROB}")
+                
+                ax_zone_hist.set_yticks(np.arange(0, 1, 0.05))
+                ax_zone_hist.grid(color='black', linestyle='-', linewidth=1)
+                ax_zone_hist.hist(zone_deaths, weights=np.ones(N_PARTICLES) / N_PARTICLES)
+                ax_zone_hist.set_xlabel("Zone")
+                ax_zone_hist.set_ylabel("Deaths in zone")
+                ax_zone_hist.set_title("Place of particle death")
+
+                ax_status_hist.bar(["Absorbed by walls", "Killed by iter. limit"], [sum(end_alive == False), sum(end_alive == True)])
+                ax_status_hist.set_title("Reason of particle death")
+                fig.savefig("tracks.png", dpi=300)
+                plt.show()
+
+            time_finish = time.time()
+            main_logger.info(f'time of generation: {time.strftime("%H:%M:%S", time.gmtime(time_finish-time_start))}' )
+            main_logger.info("Application finish")
+    
+    
+           
 
